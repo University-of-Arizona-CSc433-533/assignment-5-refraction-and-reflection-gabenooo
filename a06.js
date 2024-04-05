@@ -30,12 +30,14 @@ var filesToRead=[];//List of files to be read
 var imageData;//The image contents are stored separately here
 var scene;//The code can save multiple scenes but no HTML element is made to give user option of switching scenes without selecting file agail. By default the firt scene is shown and the other selected scenes are just stored.
 var objParsed;
-
+var startTime;
 // Mirror camera position
 var cameraPositionPrime;
 
 var billboardProgram;
 var waterHeight=0.5;
+var wvAmp = 0.4
+var wvLen = 2.5;
 
 var wh = document.getElementById('whID');//Slider for water height
 
@@ -48,8 +50,31 @@ wh.addEventListener("input", function(evt) {
 	}
 },false);
 
+var wvle = document.getElementById('wvlID');//Slider for water height
+
+wvle.addEventListener("input", function(evt) {
+	if(doneLoading==true){
+		wvLen=Number(wvle.value);
+		var wlLabel = document.getElementById("wvLengthID");
+		wlLabel.innerHTML = wvle.value;
+		wvle.label = "wave length: "+wvle.value;//refresh wh text
+	}
+},false);
+
+var wva = document.getElementById('wvaID');//Slider for water height
+
+wva.addEventListener("input", function(evt) {
+	if(doneLoading==true){
+		wvAmp=Number(wva.value);
+		var waLabel = document.getElementById("wvAmpID");
+		waLabel.innerHTML = wva.value;
+		wva.label = "wave amplitude: "+wva.value;//refresh wh text
+	}
+},false);
+
 function readScene()//This is the function that is called after user selects multiple files of images and scenes
 {
+	startTime = Date.now(); // Get start time for animation
 	if (input.files.length > 0) {
 		if(doneLoading==true)//This condition checks if this is the first time user has selected a scene or not. If doneLoading==true, then the user has selected a new scene while rendering
 		{
@@ -139,7 +164,9 @@ function readScene()//This is the function that is called after user selects mul
 }
 
 // Draw the scene.
-function drawScene(now) {
+function drawScene() {
+	var currentTime = Date.now();
+    var now = (currentTime - startTime) / 1000.0;
 	if(doneLoading==false)
 	{
 		var isReaminingRead=false;
@@ -266,7 +293,12 @@ function renderBillboard(now){
 	
 	//TODO: You need to send "time" and "water height" to the shader program
 	// You can eaither use the uniform location here or you can use your preprocessed uniform location in the program.
-	
+	//console.log(now)
+    gl.uniform1f(billboardProgram.timeUniformLocation, now);
+	gl.uniform1f(billboardProgram.waterHeightUniformLocation, waterHeight);
+
+	gl.uniform1f(billboardProgram.wvLenUniformLocation, wvLen);
+	gl.uniform1f(billboardProgram.wvAmpUniformLocation, wvAmp);
 	gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
@@ -314,7 +346,7 @@ function makeBillboardBuffers(){
 }
 
 class BillboardProgram{
-	constructor(program,positionLocationAttrib,normalLocationAttrib,textureLocationAttrib,textureUniformLocation,worldViewProjectionUniformLocation,lightDirectionUniformLocation){
+	constructor(program,positionLocationAttrib,normalLocationAttrib,textureLocationAttrib,textureUniformLocation,worldViewProjectionUniformLocation,lightDirectionUniformLocation,timeUniformLocation,waterHeightUniformLocation,wvLenUniformLocation,wvAmpUniformLocation){
 		this.program=program;
 		this.positionLocationAttrib=positionLocationAttrib;
 		this.normalLocationAttrib=normalLocationAttrib;
@@ -322,6 +354,11 @@ class BillboardProgram{
 		this.textureUniformLocation=textureUniformLocation;
 		this.worldViewProjectionUniformLocation=worldViewProjectionUniformLocation;
 		this.lightDirectionUniformLocation=lightDirectionUniformLocation;
+		this.timeUniformLocation=timeUniformLocation
+		this.waterHeightUniformLocation=waterHeightUniformLocation
+
+		this.wvLenUniformLocation=wvLenUniformLocation
+		this.wvAmpUniformLocation=wvAmpUniformLocation
 	}
 }
 
@@ -345,20 +382,62 @@ function programBillboard(){
 					"// Multiply the position by the matrix.\n"+
 					"gl_Position = u_worldViewProjection * a_position;\n"+
 				"}";
-	var fShaderObj = 	"precision mediump float;\n"+
-					"varying vec3 v_normal;\n"+
-					"varying vec2 v_texcoord;\n"+
-					"uniform vec3 u_lightDirection;\n"+
-					"uniform sampler2D u_texture;\n"+
-					"void main() {\n"+
-						"gl_FragColor = texture2D(u_texture, v_texcoord);\n"+
-					"}";
+	var fShaderObj = `
+	precision mediump float;
+
+	uniform float u_time;
+	uniform sampler2D u_texture;
+	uniform vec3 u_lightDirection;
+	uniform float u_waterHeight;
+	uniform float u_wavelength;
+	uniform float u_amplitude;
+
+	varying vec3 v_normal;
+	varying vec2 v_texcoord;
+
+	void main() {
+		// step 8 - sinusoidal wave equation 
+		vec2 xy = v_texcoord * 2.0 - 1.0; // remap texture coords to [-1, 1] range
+		float rho = length(xy);
+		float theta = atan(xy.y, xy.x);
+		float waveTime = u_time * 0.5; // time scale for wave movement
+		float height = u_waterHeight * u_amplitude * sin(waveTime - rho * u_wavelength); // added water height modifier
+
+		// 9 - get normal
+		float dx = -u_waterHeight * u_amplitude * u_wavelength * cos(waveTime - rho * u_wavelength) * xy.x / rho;
+		float dy = -u_waterHeight * u_amplitude * u_wavelength * cos(waveTime - rho * u_wavelength) * xy.y / rho;
+		vec3 normal = normalize(vec3(dx, dy, 1.0));
+
+		//step 12 - Snells law
+		float n1 = 1.0; // ref index of air
+		float n2 = 2.00; // ref index of water
+		vec3 viewDirection = vec3(0.0, 0.0, -1.0); // looking straight down
+		float cosThetaI = dot(-viewDirection, normal);
+		float sinThetaT2 = (n1 / n2) * (n1 / n2) * (1.0 - cosThetaI * cosThetaI);
+		// check sinThetaT2
+		if (sinThetaT2 > 1.0) {
+			// tot internal reflection, no refraction
+			gl_FragColor = texture2D(u_texture, v_texcoord);
+		} else {
+			float cosThetaT = sqrt(1.0 - sinThetaT2);
+			vec3 refractDir = normalize((n1 / n2) * viewDirection + (n1 / n2 * cosThetaI - cosThetaT) * normal);
+
+			// 13 adjust texture coordinates based on refraction
+			vec2 refractedTexCoords = v_texcoord + refractDir.xy * height;
+			gl_FragColor = texture2D(u_texture, refractedTexCoords);
+		}
+	}
+	`;
 	programBill = webglUtils.createProgramFromSources(gl, [vShaderObj,fShaderObj])
 	
 	// look up where the vertex data needs to go.
     positionLocationAttrib = gl.getAttribLocation(programBill, "a_position");
 	normalLocationAttrib = gl.getAttribLocation(programBill, "a_normal");
 	textureLocationAttrib = gl.getAttribLocation(programBill, "a_texcoord");
+	timeUniformLocation = gl.getUniformLocation(programBill, "u_time");
+	waterHeightUniformLocation = gl.getUniformLocation(programBill, "u_waterHeight");
+	wvLenUniformLocation = gl.getUniformLocation(programBill, "u_wavelength");
+	wvAmpUniformLocation = gl.getUniformLocation(programBill, "u_amplitude");
 	
 	//Optional TODO: You can preprocess required Uniforms to avoid searching for uniforms when rendering.
 	// lookup uniforms
@@ -367,7 +446,7 @@ function programBillboard(){
 	lightDirectionUniformLocation = gl.getUniformLocation(programBill, "u_lightDirection");
 	
 	//Optional TODO: You can preprocess required Uniforms to avoid searching for uniforms when rendering.
-	billboardProgram=new BillboardProgram(programBill,positionLocationAttrib,normalLocationAttrib,textureLocationAttrib,textureUniformLocation,worldViewProjectionUniformLocation,lightDirectionUniformLocation);
+	billboardProgram=new BillboardProgram(programBill,positionLocationAttrib,normalLocationAttrib,textureLocationAttrib,textureUniformLocation,worldViewProjectionUniformLocation,lightDirectionUniformLocation,timeUniformLocation,waterHeightUniformLocation,wvLenUniformLocation,wvAmpUniformLocation);
 }
 
 //The function for parsing PNG is done for you. The output is a an array of RGBA instances.
