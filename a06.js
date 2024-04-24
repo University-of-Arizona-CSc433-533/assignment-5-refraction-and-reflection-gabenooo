@@ -422,13 +422,13 @@ function programBillboard(){
 	void main() {
 		// 8
 		vec2 xy = v_texcoord * 2.0 - 1.0; // Remap texture coordinates to [-1, 1] range
-		float rho = length(xy);
-		float theta = atan(xy.y, xy.x);
+		float rho = length(xy); // distance from center of screen
+		float theta = atan(xy.y, xy.x); // angle of cur pixel relative to x-axis
 		float waveTime = u_time * 0.5; // Adjust the scaling factor to control wave speed
 		float decayFactor = exp(-u_waveDecay * u_time); // Exponential decay factor
-		float height = u_amplitude * sin((rho + waveTime) / u_wavelength);
+		float height = u_amplitude * sin((rho + waveTime) / u_wavelength); // height at pixel
 
-		// normal? - not sure about this, decay factor needed?
+		// normal? - not sure about this, decay factor needd? - normal to water serface 
 		float dx = -u_amplitude * decayFactor * u_wavelength * cos(waveTime - rho * u_wavelength) * xy.x / rho;
 		float dy = -u_amplitude * decayFactor * u_wavelength * cos(waveTime - rho * u_wavelength) * xy.y / rho;
 		vec3 normal = normalize(vec3(dx, dy, 1.0));
@@ -437,11 +437,11 @@ function programBillboard(){
 		float n1 = 1.0; // air
 		float n2 = 2.00; //  water
 		vec3 viewDirection = vec3(0.0, 0.0, -1.0); // looking down
-		float cosThetaI = dot(-viewDirection, normal);
-		float sinThetaT2 = (n1 / n2) * (n1 / n2) * (1.0 - cosThetaI * cosThetaI);
+		float cosThetaI = dot(-viewDirection, normal); // angle of incidence
+		float sinThetaT2 = (n1 / n2) * (n1 / n2) * (1.0 - cosThetaI * cosThetaI); // angle of refraction
 		// check 
 		if (sinThetaT2 > 1.0) {
-			// tot internal reflection, no refraction
+			// no refraction - tot internal?
 			gl_FragColor = texture2D(u_texture, v_texcoord);
 		} else {
 			float cosThetaT = sqrt(1.0 - sinThetaT2);
