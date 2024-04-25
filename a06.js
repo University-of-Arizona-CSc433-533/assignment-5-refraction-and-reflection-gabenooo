@@ -310,7 +310,7 @@ function renderBillboard(now){
 	// Send the light direction to the uniform.
 	gl.uniform3fv(billboardProgram.lightDirectionUniformLocation, new Float32Array([currentScene.light.locationPoint.x,currentScene.light.locationPoint.y,currentScene.light.locationPoint.z]));
 	
-	
+	//todo get rid of this:?
     gl.uniform1f(billboardProgram.waveDecayUniformLocation, 0.4); // 0.5
 	
 	gl.uniform1f(billboardProgram.timeUniformLocation, now);
@@ -421,16 +421,18 @@ function programBillboard(){
 
 	void main() {
 		// 8
-		vec2 xy = v_texcoord * 2.0 - 1.0; // Remap texture coordinates to [-1, 1] range
+		vec2 xy = v_texcoord * 2.0 - 1.0; // Remap texture coordinates to [-1, 1] range instead of 0.5 0.5 center, center = 0,0
 		float rho = length(xy); // distance from center of screen
 		float theta = atan(xy.y, xy.x); // angle of cur pixel relative to x-axis
-		float waveTime = u_time * 0.5; // Adjust the scaling factor to control wave speed
+		float waveTime = u_time * 1.1; // Adjust the scaling factor to control wave speed
 		float decayFactor = exp(-u_waveDecay * u_time); // Exponential decay factor
-		float height = u_amplitude * sin((rho + waveTime) / u_wavelength); // height at pixel
+		float height = u_waterHeight + u_amplitude * sin((rho + waveTime) / u_wavelength); // height at pixel - step 8
 
-		// normal? - not sure about this, decay factor needd? - normal to water serface 
+		// normal - decay factor needd? - normal to water serface 
 		float dx = -u_amplitude * decayFactor * u_wavelength * cos(waveTime - rho * u_wavelength) * xy.x / rho;
 		float dy = -u_amplitude * decayFactor * u_wavelength * cos(waveTime - rho * u_wavelength) * xy.y / rho;
+		//float dx = ((u_amplitude * xy.x) / (u_wavelength * rho)) * cos((waveTime + rho) / u_wavelength);
+    	//float dy = ((u_amplitude * xy.y) / (u_wavelength * rho)) * cos((waveTime + rho) / u_wavelength);
 		vec3 normal = normalize(vec3(dx, dy, 1.0));
 
 		//snells law
