@@ -13,4 +13,4 @@ Included files:
 
 
 works well has a nice wave effect implementing snells law. allows you to change 
-amplitude, length, water height. 
+amplitude, length, water height. The only thing not implemented was the walls of the pool, and the reflections those would cause
